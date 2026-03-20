@@ -1,4 +1,4 @@
-# PulseAI — Stock Price Prediction
+# TradeTrack — Stock Price Prediction
 
 A full-stack AI stock prediction web app with a 3-page React frontend and a FastAPI ML backend.
 
@@ -7,7 +7,7 @@ A full-stack AI stock prediction web app with a 3-page React frontend and a Fast
 ## 📁 Project Structure
 
 ```
-PulseAI/
+v/
 ├── backend/
 │   ├── main.py              # FastAPI app — stock data + ML prediction endpoints
 │   └── requirements.txt     # Python dependencies
