@@ -1,0 +1,16 @@
+.line-graph {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+
+.line-graph-grid {
+  stroke-linecap: round;
+}
+
+.line-graph:before {
+  content: "";
+  position: absolute;
+  inset: 1rem 0 0 0;
+}

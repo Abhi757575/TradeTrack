@@ -3,7 +3,7 @@ PulseAI Stock Prediction API
 FastAPI backend with multiple ML models for price prediction
 """
 
-from fastapi import FastAPI, HTTPException
+from fastapi import Body, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional, List
@@ -36,6 +36,20 @@ MODEL_NAMES = {
     "svm": "Support Vector Machine",
     "linear_regression": "Linear Regression",
 }
+
+FEATURE_COLUMNS = [
+    "adjOpen",
+    "adjHigh",
+    "adjLow",
+    "adjClose",
+    "adjVolume",
+    "SMA_10",
+    "SMA_50",
+    "RSI",
+    "MACD",
+    "MACD_Signal",
+    "MACD_hist",
+]
 
 def load_models():
     """Load all pre-trained models from pickle files"""
@@ -112,6 +126,39 @@ class ModelInfo(BaseModel):
 class AvailableModelsResponse(BaseModel):
     models: List[ModelInfo]
 
+
+class FeatureInputs(BaseModel):
+    adjOpen: float
+    adjHigh: float
+    adjLow: float
+    adjClose: float
+    adjVolume: float
+    SMA_10: float
+    SMA_50: float
+    RSI: float
+    MACD: float
+    MACD_Signal: float
+    MACD_hist: float
+
+
+class FeatureResponse(BaseModel):
+    symbol: str
+    company_name: Optional[str]
+    adjOpen: float
+    adjHigh: float
+    adjLow: float
+    adjClose: float
+    adjVolume: float
+    SMA_10: float
+    SMA_50: float
+    RSI: float
+    MACD: float
+    MACD_Signal: float
+    MACD_hist: float
+    prev_close: float
+    change: float
+    change_pct: float
+
 # ── Helpers ──────────────────────────────────────────────────
 def get_ticker_data(symbol: str, period: str = "1y") -> tuple:
     """Fetch historical data from yfinance"""
@@ -129,61 +176,69 @@ def get_ticker_data(symbol: str, period: str = "1y") -> tuple:
     return ticker, hist, info
 
 
+def ensure_adjusted_prices(df: pd.DataFrame) -> pd.DataFrame:
+    """Ensure adjusted price columns exist (adjOpen, adjHigh, adjLow, adjClose, adjVolume)."""
+    df = df.copy()
+    df["adjClose"] = df.get("Adj Close", df["Close"])
+    ratio = df["adjClose"] / df["Close"].replace(0, np.nan)
+    ratio = ratio.replace([np.inf, -np.inf], 1.0).fillna(1.0)
+
+    for col in ("Open", "High", "Low"):
+        if col in df.columns:
+            df[f"adj{col}"] = df[col] * ratio
+        else:
+            df[f"adj{col}"] = df["adjClose"]
+
+    df["adjVolume"] = df.get("Volume", df.get("adjVolume", np.nan))
+    return df
+
+
 def add_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
-    """Add technical indicators to price data"""
-    close = df["Close"].copy()
-    
+    """Add technical indicators to price data based on adjusted close."""
+    df = ensure_adjusted_prices(df)
+    close = df["adjClose"]
+
+    # Moving averages
+    df["SMA_10"] = close.rolling(10).mean()
+    df["SMA_50"] = close.rolling(50).mean()
+
     # RSI
     delta = close.diff()
     gain = delta.clip(lower=0).rolling(14).mean()
     loss = (-delta.clip(upper=0)).rolling(14).mean()
     rs = gain / (loss + 1e-9)
     df["RSI"] = 100 - (100 / (1 + rs))
-    
+
     # MACD
-    ema12 = close.ewm(span=12).mean()
-    ema26 = close.ewm(span=26).mean()
+    ema12 = close.ewm(span=12, adjust=False).mean()
+    ema26 = close.ewm(span=26, adjust=False).mean()
     df["MACD"] = ema12 - ema26
-    df["Signal"] = df["MACD"].ewm(span=9).mean()
-    
-    # Bollinger Bands
-    sma20 = close.rolling(20).mean()
-    std20 = close.rolling(20).std()
-    df["BB_upper"] = sma20 + 2 * std20
-    df["BB_lower"] = sma20 - 2 * std20
-    df["BB_pct"] = (close - df["BB_lower"]) / (df["BB_upper"] - df["BB_lower"] + 1e-9)
-    
-    # Moving Averages
-    df["SMA_50"] = close.rolling(50).mean()
-    df["SMA_200"] = close.rolling(200).mean()
-    df["EMA_12"] = ema12
-    df["EMA_26"] = ema26
-    
-    # Volume changes
-    df["Volume_MA"] = df["Volume"].rolling(20).mean()
-    df["Price_Change"] = close.pct_change()
-    
-    return df.dropna()
+    df["MACD_Signal"] = df["MACD"].ewm(span=9, adjust=False).mean()
+    df["MACD_hist"] = df["MACD"] - df["MACD_Signal"]
+
+    return df
 
 
-def prepare_features_for_model(df: pd.DataFrame, window: int = 20) -> np.ndarray:
-    """Prepare feature matrix for ML models"""
-    if len(df) < window:
-        raise ValueError(f"Need at least {window} data points")
-    
-    features = []
-    
-    # Extract relevant columns
-    cols = ["Close", "Volume", "RSI", "MACD", "Signal", "BB_pct", 
-            "SMA_50", "SMA_200", "EMA_12", "EMA_26", "Price_Change"]
-    
-    # Use only columns that exist
-    available_cols = [c for c in cols if c in df.columns]
-    
-    data = df[available_cols].tail(window).values
-    features = data.flatten().reshape(1, -1)
-    
-    return features
+def extract_feature_matrix(df: pd.DataFrame) -> pd.DataFrame:
+    """Return the feature matrix used for model inputs."""
+    subset = df.dropna(subset=FEATURE_COLUMNS)
+    if subset.empty:
+        raise ValueError("Not enough data to compute features")
+    return subset[FEATURE_COLUMNS]
+
+
+def build_feature_vector(inputs: FeatureInputs) -> np.ndarray:
+    """Convert incoming feature inputs into a numpy array."""
+    values = [getattr(inputs, col) for col in FEATURE_COLUMNS]
+    return np.array(values, dtype=float).reshape(1, -1)
+
+
+def scale_feature_vector(vector: np.ndarray, feature_matrix: np.ndarray) -> np.ndarray:
+    """Standardize a feature vector using the historical feature matrix statistics."""
+    means = feature_matrix.mean(axis=0)
+    stds = feature_matrix.std(axis=0)
+    stds = np.where(stds < 1e-6, 1.0, stds)
+    return (vector - means) / stds
 
 
 def predict_with_model(model_key: str, prices: np.ndarray, features: np.ndarray, 
@@ -374,79 +429,123 @@ def get_stock(symbol: str):
     )
 
 
+@app.get("/features/{symbol}", response_model=FeatureResponse)
+def get_stock_features(symbol: str):
+    ticker, hist, info = get_ticker_data(symbol, period="1y")
+    hist = add_technical_indicators(hist)
+
+    try:
+        feature_df = extract_feature_matrix(hist)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
+    latest = feature_df.iloc[-1]
+    prev_close = float(feature_df["adjClose"].iloc[-2]) if len(feature_df) > 1 else float(latest["adjClose"])
+    change = float(latest["adjClose"]) - prev_close
+    change_pct = (change / prev_close * 100) if prev_close else 0.0
+
+    return FeatureResponse(
+        symbol=symbol.upper(),
+        company_name=info.get("longName") or info.get("shortName"),
+        adjOpen=float(latest["adjOpen"]),
+        adjHigh=float(latest["adjHigh"]),
+        adjLow=float(latest["adjLow"]),
+        adjClose=float(latest["adjClose"]),
+        adjVolume=float(latest["adjVolume"]),
+        SMA_10=float(latest["SMA_10"]),
+        SMA_50=float(latest["SMA_50"]),
+        RSI=float(latest["RSI"]),
+        MACD=float(latest["MACD"]),
+        MACD_Signal=float(latest["MACD_Signal"]),
+        MACD_hist=float(latest["MACD_hist"]),
+        prev_close=round(prev_close, 2),
+        change=round(change, 2),
+        change_pct=round(change_pct, 2),
+    )
+
+
 @app.post("/predict/{symbol}", response_model=PredictionResponse)
-def predict_stock(symbol: str, days: int = 7, model: str = "lstm"):
-    """Generate stock price predictions"""
-    
+def predict_stock(
+    symbol: str,
+    *,
+    days: int = 1,
+    model: str = "lstm",
+    features_payload: Optional[FeatureInputs] = Body(None),
+):
+    """Generate stock price predictions using either supplied features or the latest market inputs."""
     if days < 1 or days > 90:
         raise HTTPException(status_code=400, detail="days must be between 1 and 90")
-    
+
     if model not in MODELS and model != "ensemble":
         raise HTTPException(status_code=400, detail=f"Invalid model. Available: {', '.join(MODELS.keys())}")
-    
-    # Get data
-    _, hist, _ = get_ticker_data(symbol)
+
+    _, hist, _ = get_ticker_data(symbol, period="1y")
     hist = add_technical_indicators(hist)
-    
-    prices = hist["Close"].values.astype(float)
-    
-    # Prepare features
+
     try:
-        features = prepare_features_for_model(hist, window=20)
-    except Exception as e:
-        # Fallback if feature preparation fails
-        features = np.array([[prices[-1]]])
-    
-    # Make predictions
+        feature_df = extract_feature_matrix(hist)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
+    aligned_hist = hist.loc[feature_df.index]
+    prices = aligned_hist["adjClose"].values.astype(float)
+    feature_matrix = feature_df.to_numpy()
+
+    if features_payload:
+        feature_vector = build_feature_vector(features_payload)
+    else:
+        feature_vector = feature_df.iloc[-1].to_numpy().reshape(1, -1)
+
+    scaled_features = scale_feature_vector(feature_vector, feature_matrix)
+
     if model == "ensemble":
-        # Average predictions from top 3 models
         all_preds = []
-        all_confs = []
-        for m in ["lstm", "xgboost", "gradient_boosting"]:
-            if m in MODELS:
-                preds, conf = predict_with_model(m, prices, features, days)
+        confidences = []
+        for key in ["lstm", "xgboost", "gradient_boosting"]:
+            if key in MODELS:
+                preds, conf = predict_with_model(key, prices, scaled_features, days)
                 all_preds.append(preds)
-                all_confs.append(conf)
-        
+                confidences.append(conf)
+
         if all_preds:
-            pred_prices = [np.mean([p[i]['price'] for p in all_preds]) for i in range(days)]
-            confidence = np.mean(all_confs)
+            pred_prices = [float(np.mean([p[i]["price"] for p in all_preds])) for i in range(days)]
+            confidence = float(np.mean(confidences))
         else:
             pred_prices, confidence = _fallback_predict(prices, days)
     else:
         if model in MODELS:
             try:
-                preds_list, confidence = predict_with_model(model, prices, features, days)
-                pred_prices = [p['price'] for p in preds_list]
-            except Exception as e:
-                print(f"Model prediction failed: {e}, using fallback")
-                preds_list, confidence = _fallback_predict(prices, days)
-                pred_prices = [p['price'] for p in preds_list]
+                preds, confidence = predict_with_model(model, prices, scaled_features, days)
+                pred_prices = [p["price"] for p in preds]
+            except Exception as exc:
+                print(f"Model prediction failed: {exc}, using fallback")
+                preds, confidence = _fallback_predict(prices, days)
+                pred_prices = [p["price"] for p in preds]
         else:
-            preds_list, confidence = _fallback_predict(prices, days)
-            pred_prices = [p['price'] for p in preds_list]
-    
-    # Generate dates and confidence intervals
-    last_date = hist.index[-1].date()
+            preds, confidence = _fallback_predict(prices, days)
+            pred_prices = [p["price"] for p in preds]
+
+    last_date = aligned_hist.index[-1].date()
     results = []
     trading_day = last_date
-    
-    for i, price in enumerate(pred_prices):
+
+    for index, price in enumerate(pred_prices):
         trading_day += timedelta(days=1)
-        # Skip weekends
         while trading_day.weekday() >= 5:
             trading_day += timedelta(days=1)
-        
+
         vol = np.std(prices[-20:]) / prices[-1] if len(prices) > 1 else 0.01
-        margin = price * vol * (0.5 + i * 0.05)
-        
-        results.append(PredictionPoint(
-            date=str(trading_day),
-            price=round(price, 2),
-            lower=round(max(0, price - margin), 2),
-            upper=round(price + margin, 2),
-        ))
-    
+        margin = price * vol * (0.5 + index * 0.05)
+
+        results.append(
+            PredictionPoint(
+                date=str(trading_day),
+                price=round(price, 2),
+                lower=round(max(0, price - margin), 2),
+                upper=round(price + margin, 2),
+            )
+        )
+
     return PredictionResponse(
         symbol=symbol.upper(),
         model=MODEL_NAMES.get(model, model),

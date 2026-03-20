@@ -1,561 +1,585 @@
-import { useState, useEffect } from "react";
-import {
-  AreaChart, Area, XAxis, YAxis, CartesianGrid,
-  Tooltip, ResponsiveContainer, ReferenceLine,
-} from "recharts";
+import { useEffect, useState } from "react";
 import "../styles/prediction.css";
-import ChartTooltip from "./ChartTooltip";
-import { fmt, fmtPct } from "../utils/stockData";
-import { API_BASE } from "../config/api";
 
-const MODELS = [
-  { id: "lstm", name: "LSTM", desc: "Best for trends" },
-  { id: "xgboost", name: "XGBoost", desc: "Best for volatility" },
-  { id: "ensemble", name: "Ensemble", desc: "Recommended" },
+const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:8000";
+
+const PRICE_FIELDS = [
+  { key: "adjOpen", label: "Adj Open", hint: "Today's open price", className: "cat-price" },
+  { key: "adjHigh", label: "Adj High", hint: "Today's high price", className: "cat-price" },
+  { key: "adjLow", label: "Adj Low", hint: "Today's low price", className: "cat-price" },
+  { key: "adjClose", label: "Adj Close", hint: "Today's close price", className: "cat-price" },
+  { key: "adjVolume", label: "Adj Volume", hint: "Today's trading volume", className: "cat-vol" },
 ];
 
-const POPULAR_STOCKS = ["AAPL", "GOOGL", "MSFT", "TSLA", "AMZN", "NVDA"];
+const INDICATOR_FIELDS = [
+  { key: "SMA_10", label: "SMA 10", hint: "10-day moving average" },
+  { key: "SMA_50", label: "SMA 50", hint: "50-day moving average" },
+  { key: "RSI", label: "RSI", hint: "Range: 0 - 100" },
+  { key: "MACD", label: "MACD", hint: "MACD line value" },
+  { key: "MACD_Signal", label: "MACD Signal", hint: "Signal line value" },
+  { key: "MACD_hist", label: "MACD Hist", hint: "MACD - Signal" },
+];
 
-// ── Control Panel ─────────────────────────────────────────────
-function ControlPanel({
-  sym,
-  inputSym,
-  setInputSym,
-  days,
-  setDays,
-  model,
-  setModel,
-  loading,
-  onSearch,
-  onChipClick,
-  onRun,
-}) {
-  const handleSearch = (e) => {
-    e.preventDefault();
-    onSearch(inputSym);
-  };
+const FEATURE_KEYS = [...PRICE_FIELDS, ...INDICATOR_FIELDS].map((field) => field.key);
 
-  return (
-    <div className="ctrl-panel fade-up d1">
-      {/* Symbol search */}
-      <div>
-        <div className="cp-label">Search Ticker</div>
-        <form className="cp-search" onSubmit={handleSearch}>
-          <input
-            className="cp-input"
-            value={inputSym}
-            onChange={(e) => setInputSym(e.target.value.toUpperCase())}
-            placeholder="e.g. AAPL"
-            maxLength={6}
-          />
-          <button type="submit" className="cp-go">
-            GO
-          </button>
-        </form>
-      </div>
+const FALLBACK_MODELS = [
+  { id: "linear_regression", name: "Linear Regression" },
+  { id: "svm", name: "Support Vector Machine" },
+  { id: "gradient_boosting", name: "Gradient Boosting" },
+  { id: "xgboost", name: "XGBoost" },
+  { id: "random_forest", name: "Random Forest" },
+  { id: "lstm", name: "LSTM" },
+];
 
-      {/* Quick pick chips */}
-      <div>
-        <div className="cp-label">Quick Pick</div>
-        <div className="cp-chips">
-          {POPULAR_STOCKS.map((stock) => (
-            <button
-              key={stock}
-              className={`cp-chip ${sym === stock ? "active" : ""}`}
-              onClick={() => onChipClick(stock)}
-            >
-              {stock}
-            </button>
-          ))}
-        </div>
-      </div>
+const createEmptyFields = () => {
+  const obj = {};
+  FEATURE_KEYS.forEach((key) => {
+    obj[key] = "";
+  });
+  return obj;
+};
 
-      {/* Forecast horizon */}
-      <div>
-        <div className="cp-label">Forecast Horizon</div>
-        <div className="cp-range-val">{days} days</div>
-        <input
-          type="range"
-          className="range-input"
-          min={1}
-          max={30}
-          value={days}
-          onChange={(e) => setDays(+e.target.value)}
-        />
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            fontSize: 10,
-            color: "var(--text-dim)",
-          }}
-        >
-          <span>1d</span>
-          <span>30d</span>
-        </div>
-      </div>
+const parseNumber = (value) => {
+  if (value === null || value === undefined || value === "") return null;
+  const num = parseFloat(value);
+  return Number.isFinite(num) ? num : null;
+};
 
-      {/* Model selector */}
-      <div>
-        <div className="cp-label">Model</div>
-        {MODELS.map((m) => (
-          <div
-            key={m.id}
-            className={`model-opt ${model === m.id ? "active" : ""}`}
-            onClick={() => setModel(m.id)}
-          >
-            <div className="mo-dot" />
-            <div>
-              <div className="mo-name">{m.name}</div>
-              <div className="mo-desc">{m.desc}</div>
-            </div>
-          </div>
-        ))}
-      </div>
+const formatNumber = (value, digits = 2) => {
+  if (value === null || value === undefined) return "--";
+  return Number(value).toLocaleString(undefined, {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+  });
+};
 
-      <button className="run-btn" disabled={loading} onClick={onRun}>
-        {loading ? (
-          <>
-            <div className="spinner" />
-            Running…
-          </>
-        ) : (
-          <>▶ Run Prediction</>
-        )}
-      </button>
-    </div>
-  );
-}
+const formatVolume = (value) => {
+  if (!value && value !== 0) return "--";
+  const num = Number(value);
+  if (num >= 1e9) return `${(num / 1e9).toFixed(2)}B`;
+  if (num >= 1e6) return `${(num / 1e6).toFixed(2)}M`;
+  if (num >= 1e3) return `${(num / 1e3).toFixed(1)}K`;
+  return num.toLocaleString();
+};
 
-// ── Results Panel ─────────────────────────────────────────────
-function ResultsPanel({
-  stockData,
-  prediction,
-  loading,
-  sym,
-  model,
-  days,
-  tab,
-  setTab,
-}) {
-  const lastPrice = stockData?.current_price;
-  const finalPred = prediction?.predictions?.[prediction.predictions.length - 1]?.price;
-  const predChg = lastPrice && finalPred ? ((finalPred - lastPrice) / lastPrice) * 100 : null;
-  const dayChange = stockData?.change_percent;
+const buildFeaturePayload = (fields) => {
+  const payload = {};
+  FEATURE_KEYS.forEach((key) => {
+    const raw = fields[key];
+    const parsed = parseFloat(raw);
+    if (Number.isNaN(parsed)) {
+      throw new Error(`Please enter ${key}`);
+    }
+    payload[key] = parsed;
+  });
+  return payload;
+};
 
-  const chartData = stockData
-    ? [
-        ...stockData.history.slice(-40).map((h) => ({
-          date: h.date,
-          actual: h.close,
-          predicted: null,
-        })),
-        ...(prediction?.predictions || []).map((p) => ({
-          date: p.date,
-          actual: null,
-          predicted: p.price,
-        })),
-      ]
-    : [];
+function Prediction() {
+  const [tickerInput, setTickerInput] = useState("AAPL");
+  const [currentTicker, setCurrentTicker] = useState("");
+  const [stockInfo, setStockInfo] = useState(null);
+  const [fields, setFields] = useState(() => createEmptyFields());
+  const [modelList, setModelList] = useState(FALLBACK_MODELS);
+  const [model, setModel] = useState(FALLBACK_MODELS[0].id);
+  const [loadingFetch, setLoadingFetch] = useState(false);
+  const [loadingPredict, setLoadingPredict] = useState(false);
+  const [predictionDays, setPredictionDays] = useState(5);
+  const [searchInfo, setSearchInfo] = useState("");
+  const [searchError, setSearchError] = useState("");
+  const [predictionResult, setPredictionResult] = useState(null);
+  const [predictionError, setPredictionError] = useState("");
 
-  if (!stockData && !loading) {
-    return (
-      <div className="empty-state">
-        <div className="empty-icon">📈</div>
-        <div className="empty-title">Select a ticker to begin</div>
-        <div>Pick from quick select or search by symbol</div>
-      </div>
-    );
-  }
-
-  if (loading) {
-    return (
-      <div className="empty-state">
-        <div className="spinner" style={{ width: 32, height: 32 }} />
-        <div className="empty-title">
-          Running {MODELS.find((m) => m.id === model)?.name}…
-        </div>
-        <div style={{ color: "var(--text-dim)" }}>
-          Generating {days}-day forecast
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <>
-      {/* Hero bar */}
-      <div className="shb fade-up">
-        <div>
-          <div className="shb-sym">{stockData.symbol}</div>
-          <div className="shb-name">{stockData.name}</div>
-        </div>
-        <div>
-          <div className="shb-price">{fmt(lastPrice)}</div>
-          <div className={`shb-chg ${dayChange >= 0 ? "green" : "red"}`}>
-            {fmtPct(dayChange)} today
-          </div>
-        </div>
-      </div>
-
-      {/* Stats row */}
-      <div className="stats-row fade-up d1">
-        {[
-          { l: "Open", v: fmt(stockData.open) },
-          { l: "High", v: fmt(stockData.high) },
-          { l: "Low", v: fmt(stockData.low) },
-          { l: "Volume", v: (stockData.volume / 1e6).toFixed(1) + "M" },
-          { l: "52W High", v: fmt(stockData.week_52_high) },
-          { l: "52W Low", v: fmt(stockData.week_52_low) },
-        ].map((s) => (
-          <div className="sc" key={s.l}>
-            <div className="sc-label">{s.l}</div>
-            <div className="sc-val">{s.v}</div>
-          </div>
-        ))}
-      </div>
-
-      {/* Prediction banner */}
-      {prediction && (
-        <div className="pred-banner fade-up d2">
-          <div>
-            <div className="pb-label">
-              AI Target · {days}D · {prediction.model}
-            </div>
-            <div className="pb-price">{fmt(finalPred)}</div>
-            <div style={{ fontSize: 11, color: "var(--text-dim)", marginTop: 4 }}>
-              {prediction.predictions.length} trading day forecast
-            </div>
-          </div>
-          {predChg != null && (
-            <div className={`pb-chg ${predChg >= 0 ? "up" : "dn"}`}>
-              {fmtPct(predChg)}
-            </div>
-          )}
-          <div className="pb-conf">
-            <span
-              style={{
-                fontSize: 10,
-                color: "var(--text-dim)",
-                letterSpacing: 1,
-              }}
-            >
-              CONFIDENCE
-            </span>
-            <div className="conf-bg">
-              <div
-                className="conf-fill"
-                style={{ width: `${(prediction.confidence || 0) * 100}%` }}
-              />
-            </div>
-            <span style={{ fontSize: 12, color: "var(--accent)", fontWeight: 700 }}>
-              {((prediction.confidence || 0) * 100).toFixed(0)}%
-            </span>
-          </div>
-        </div>
-      )}
-
-      {/* Tabs */}
-      <div className="tabs-row">
-        {["chart", "table", "model info"].map((t) => (
-          <button
-            key={t}
-            className={`tab-btn ${tab === t ? "active" : ""}`}
-            onClick={() => setTab(t)}
-          >
-            {t}
-          </button>
-        ))}
-      </div>
-
-      {/* Chart tab */}
-      {tab === "chart" && (
-        <div className="chart-card fade-up">
-          <div className="cc-header">
-            <div className="cc-title">Price History + Forecast</div>
-            <div className="legend-row" style={{ margin: 0 }}>
-              <div className="leg-item">
-                <div className="leg-dot" style={{ background: "#0ea5e9" }} />
-                Actual
-              </div>
-              <div className="leg-item">
-                <div className="leg-dot" style={{ background: "#00d4aa" }} />
-                Predicted
-              </div>
-            </div>
-          </div>
-          <ResponsiveContainer width="100%" height={300}>
-            <AreaChart data={chartData}>
-              <defs>
-                <linearGradient id="cg1" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#0ea5e9" stopOpacity={0.2} />
-                  <stop offset="95%" stopColor="#0ea5e9" stopOpacity={0} />
-                </linearGradient>
-                <linearGradient id="cg2" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#00d4aa" stopOpacity={0.15} />
-                  <stop offset="95%" stopColor="#00d4aa" stopOpacity={0} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="#1e2d3d" vertical={false} />
-              <XAxis
-                dataKey="date"
-                tick={{ fill: "#6e7f8f", fontSize: 10 }}
-                tickLine={false}
-                axisLine={false}
-                interval={9}
-              />
-              <YAxis
-                tick={{ fill: "#6e7f8f", fontSize: 10 }}
-                tickLine={false}
-                axisLine={false}
-                tickFormatter={(v) => `$${v}`}
-                width={55}
-              />
-              <Tooltip content={<ChartTooltip />} />
-              <ReferenceLine
-                x={
-                  stockData.history[stockData.history.length - 1]?.date
-                }
-                stroke="#1e2d3d"
-                strokeDasharray="4 4"
-              />
-              <Area
-                type="monotone"
-                dataKey="actual"
-                stroke="#0ea5e9"
-                strokeWidth={2}
-                fill="url(#cg1)"
-                dot={false}
-                name="Actual"
-              />
-              <Area
-                type="monotone"
-                dataKey="predicted"
-                stroke="#00d4aa"
-                strokeWidth={2}
-                strokeDasharray="6 3"
-                fill="url(#cg2)"
-                dot={false}
-                name="Predicted"
-              />
-            </AreaChart>
-          </ResponsiveContainer>
-        </div>
-      )}
-
-      {/* Table tab */}
-      {tab === "table" && prediction && (
-        <div
-          style={{
-            background: "var(--bg2)",
-            border: "1px solid var(--border)",
-            borderRadius: 12,
-            overflow: "hidden",
-          }}
-          className="fade-up"
-        >
-          <table className="pred-tbl">
-            <thead>
-              <tr>
-                <th>Date</th>
-                <th>Predicted</th>
-                <th>vs Current</th>
-                <th>Lower</th>
-                <th>Upper</th>
-              </tr>
-            </thead>
-            <tbody>
-              {prediction.predictions.map((p, i) => {
-                const chg = ((p.price - lastPrice) / lastPrice) * 100;
-                return (
-                  <tr key={i}>
-                    <td className="td-bold">{p.date}</td>
-                    <td>{fmt(p.price)}</td>
-                    <td className={chg >= 0 ? "green" : "red"}>{fmtPct(chg)}</td>
-                    <td style={{ color: "var(--text-dim)" }}>{fmt(p.lower)}</td>
-                    <td style={{ color: "var(--text-dim)" }}>{fmt(p.upper)}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      {/* Model info tab */}
-      {tab === "model info" && (
-        <div className="mi-grid fade-up">
-          {[
-            {
-              t: "Architecture",
-              b: "2-layer LSTM with attention mechanism. Trained on 60-day sliding windows.",
-            },
-            {
-              t: "Features",
-              b: "Close, Volume, RSI-14, MACD, Signal, BB%, SMA-50, SMA-200, EMA-12/26.",
-            },
-            {
-              t: "Training",
-              b: "Adam optimizer, 0.001 learning rate, 100 epochs, early stopping.",
-            },
-            {
-              t: "Performance",
-              b: `Confidence: ${((prediction?.confidence || 0) * 100).toFixed(0)}%`,
-            },
-          ].map((c, i) => (
-            <div className="mi-card" key={i}>
-              <h4>{c.t}</h4>
-              <p>{c.b}</p>
-            </div>
-          ))}
-        </div>
-      )}
-    </>
-  );
-}
-
-// ── Prediction Page ───────────────────────────────────────────
-export default function Prediction() {
-  const [sym, setSym] = useState("AAPL");
-  const [inputSym, setInputSym] = useState("AAPL");
-  const [days, setDays] = useState(7);
-  const [model, setModel] = useState("lstm");
-  const [loading, setLoading] = useState(false);
-  const [stockData, setStockData] = useState(null);
-  const [prediction, setPrediction] = useState(null);
-  const [tab, setTab] = useState("chart");
-  const [error, setError] = useState("");
-
-  // Load initial stock data
   useEffect(() => {
-    loadStock("AAPL");
+    let active = true;
+
+    async function loadModels() {
+      try {
+        const response = await fetch(`${API_BASE}/models`);
+        if (!response.ok) throw new Error("Unable to load models");
+        const json = await response.json();
+        if (!active) return;
+        const models = json.models?.length ? json.models : FALLBACK_MODELS;
+        setModelList(models);
+        setModel((prev) =>
+          models.some((item) => item.id === prev) ? prev : models[0].id
+        );
+      } catch (error) {
+        if (!active) return;
+        setModelList(FALLBACK_MODELS);
+        setModel((prev) =>
+          FALLBACK_MODELS.some((item) => item.id === prev)
+            ? prev
+            : FALLBACK_MODELS[0].id
+        );
+      }
+    }
+
+    loadModels();
+    return () => {
+      active = false;
+    };
   }, []);
 
-  const loadStock = async (symbol) => {
-    try {
-      setError("");
-      setLoading(true);
-      const res = await fetch(`${API_BASE}/stock/${symbol}`);
+  const handleFieldChange = (key, value) => {
+    setFields((prev) => ({
+      ...prev,
+      [key]: value,
+    }));
+  };
 
-      if (!res.ok) {
-        throw new Error("Stock not found");
+  const populateFields = (data) => {
+    const next = {};
+    FEATURE_KEYS.forEach((key) => {
+      const value = data[key];
+      next[key] = value !== undefined && value !== null ? String(value) : "";
+    });
+    setFields(next);
+  };
+
+  const fetchStock = async () => {
+    const symbol = tickerInput.trim().toUpperCase();
+    if (!symbol) {
+      setSearchError("Please enter a ticker symbol.");
+      return;
+    }
+
+    setLoadingFetch(true);
+    setSearchError("");
+    setPredictionResult(null);
+    setPredictionError("");
+    setSearchInfo(`Fetching data for ${symbol}...`);
+
+    try {
+      const response = await fetch(`${API_BASE}/features/${symbol}`);
+      if (!response.ok) {
+        const errorBody = await response.json().catch(() => ({}));
+        throw new Error(errorBody.detail || "Unable to fetch data for ticker");
       }
 
-      const data = await res.json();
-      setSym(data.symbol);
-      setStockData(data);
-      setInputSym(data.symbol);
-      setPrediction(null);
-      setTab("chart");
-    } catch (err) {
-      setError(err.message || "Failed to load stock");
-      setStockData(null);
+      const data = await response.json();
+      setStockInfo(data);
+      setCurrentTicker(data.symbol);
+      setTickerInput(data.symbol);
+      populateFields(data);
+      setSearchInfo(`Data refreshed for ${data.symbol}`);
+    } catch (error) {
+      setStockInfo(null);
+      setSearchError(error.message || "Failed to fetch stock features");
+      setSearchInfo("");
+      setFields(createEmptyFields());
+      setCurrentTicker("");
     } finally {
-      setLoading(false);
+      setLoadingFetch(false);
     }
   };
 
-  const generatePrediction = async () => {
-    if (!stockData) return;
+  const predict = async () => {
+    if (!currentTicker) {
+      setPredictionError("Fetch stock data before running a prediction.");
+      return;
+    }
+
+    let payload;
+    try {
+      payload = buildFeaturePayload(fields);
+    } catch (error) {
+      setPredictionError(error.message);
+      return;
+    }
+
+    setLoadingPredict(true);
+    setPredictionResult(null);
+    setPredictionError("");
 
     try {
-      setError("");
-      setLoading(true);
-      setPrediction(null);
-
-      const res = await fetch(
-        `${API_BASE}/predict/${stockData.symbol}?days=${days}&model=${model}`
+      const response = await fetch(
+        `${API_BASE}/predict/${currentTicker}?days=${predictionDays}&model=${model}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        }
       );
 
-      if (!res.ok) {
-        throw new Error("Prediction failed");
+      if (!response.ok) {
+        const errorBody = await response.json().catch(() => ({}));
+        throw new Error(errorBody.detail || "Prediction request failed");
       }
 
-      const data = await res.json();
-      setPrediction(data);
-      setTab("chart");
-    } catch (err) {
-      setError(err.message || "Failed to generate prediction");
+      const data = await response.json();
+      setPredictionResult(data);
+    } catch (error) {
+      setPredictionError(error.message || "Unable to generate prediction");
     } finally {
-      setLoading(false);
+      setLoadingPredict(false);
     }
   };
 
-  const handleSearch = (symbol) => {
-    if (symbol.trim()) {
-      loadStock(symbol.trim());
-    }
-  };
+  const predictedPrice = predictionResult?.predictions?.[0]?.price ?? null;
+  const baselineClose = parseNumber(fields.adjClose);
+  const priceDelta =
+    predictedPrice !== null && baselineClose !== null
+      ? predictedPrice - baselineClose
+      : null;
+  const pctDelta =
+    predictedPrice !== null && baselineClose !== null
+      ? (priceDelta / baselineClose) * 100
+      : null;
+  const deltaUp = priceDelta !== null && priceDelta >= 0;
 
-  const handleQuickPick = (symbol) => {
-    loadStock(symbol);
-  };
+  const rsiValue = parseNumber(fields.RSI);
+  const macdHist = parseNumber(fields.MACD_hist);
+  const sma10Value = parseNumber(fields.SMA_10);
+  const sma50Value = parseNumber(fields.SMA_50);
+
+  const rsiSignal =
+    rsiValue === null
+      ? "Neutral"
+      : rsiValue > 70
+      ? "Overbought (bearish)"
+      : rsiValue < 30
+      ? "Oversold (bullish)"
+      : "Neutral";
+
+  const macdSignal =
+    macdHist === null ? "Neutral" : macdHist > 0 ? "Bullish" : "Bearish";
+
+  const smaTrend =
+    sma10Value === null || sma50Value === null
+      ? "Waiting"
+      : sma10Value > sma50Value
+      ? "Golden Cross"
+      : "Death Cross";
+
+  const forecastName =
+    predictionResult?.model ||
+    modelList.find((item) => item.id === model)?.name ||
+    "Model";
+  const forecastConfidence =
+    predictionResult?.confidence !== undefined
+      ? `${(predictionResult.confidence * 100).toFixed(1)}%`
+      : "--";
 
   return (
-    <div className="page">
-      <div className="pred-page">
-        <div className="fade-up">
-          <div className="section-tag">AI Prediction Engine</div>
-          <div
-            style={{
-              fontFamily: "var(--font-display)",
-              fontSize: "clamp(28px,4vw,46px)",
-              fontWeight: 800,
-              color: "#fff",
-              letterSpacing: -1,
-              marginBottom: 6,
-            }}
-          >
-            Stock Price Forecaster
+    <section className="prediction-shell">
+      <div className="container">
+        <div className="header">
+          <div className="badge">ML - 6 MODELS</div>
+          <h1>
+            Stock <span>Price Predictor</span>
+          </h1>
+          <p className="subtitle">
+            Search any ticker, auto-populate feature inputs, and predict the next
+            trading day close.
+          </p>
+        </div>
+
+        <div className="search-section">
+          <div className="section-label">Search Stock</div>
+          <div className="search-row">
+            <div className="search-wrap">
+              <span className="search-icon">?</span>
+              <input
+                type="text"
+                id="tickerInput"
+                placeholder="Enter ticker symbol e.g. AAPL, TSLA, MSFT..."
+                value={tickerInput}
+                onChange={(event) => setTickerInput(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    fetchStock();
+                  }
+                }}
+              />
+            </div>
+            <button
+              className="search-btn"
+              id="searchBtn"
+              type="button"
+              onClick={fetchStock}
+              disabled={loadingFetch}
+            >
+              {loadingFetch ? (
+                <>
+                  <span className="spinner spinner-light" /> Fetching...
+                </>
+              ) : (
+                "Fetch Data"
+              )}
+            </button>
           </div>
-          <div style={{ color: "var(--text-dim)", fontSize: 13 }}>
-            Choose a ticker, select a model, and get AI-powered price forecasts
+          {searchInfo && (
+            <div className="msg info visible" id="infoMsg">
+              {searchInfo}
+            </div>
+          )}
+          {searchError && (
+            <div className="msg error visible" id="searchErr">
+              {searchError}
+            </div>
+          )}
+        </div>
+
+        <div
+          className={`stock-header-card ${stockInfo ? "visible" : ""}`}
+          id="stockHeader"
+        >
+          <div className="stock-header-top">
+            <div className="stock-name-row">
+              <div className="stock-logo" id="logoEl">
+                {currentTicker ? currentTicker.slice(0, 4) : "-"}
+              </div>
+              <div>
+                <div className="stock-title" id="stockTitle">
+                  {currentTicker || "-"}
+                </div>
+                <div className="stock-company" id="stockCompany">
+                  {stockInfo?.company_name || "-"}
+                </div>
+              </div>
+            </div>
+            <div className="price-display">
+              <div className="price-big" id="priceEl">
+                {stockInfo ? `$${stockInfo.adjClose.toFixed(2)}` : "-"}
+              </div>
+              <div
+                className={`price-change ${
+                  !stockInfo ? "" : stockInfo.change >= 0 ? "up" : "down"
+                }`}
+                id="priceChange"
+              >
+                {stockInfo
+                  ? `${stockInfo.change >= 0 ? "+ " : "- "}${stockInfo.change.toFixed(
+                      2
+                    )} (${stockInfo.change >= 0 ? "+" : ""}${stockInfo.change_pct.toFixed(2)}%)`
+                  : "-"}
+              </div>
+            </div>
+          </div>
+          <div className="stock-stats">
+            <div className="stat-item">
+              <div className="stat-label">Open</div>
+              <div className="stat-value">
+                {stockInfo ? `$${Number(stockInfo.adjOpen).toFixed(2)}` : "-"}
+              </div>
+            </div>
+            <div className="stat-item">
+              <div className="stat-label">High</div>
+              <div className="stat-value">
+                {stockInfo ? `$${Number(stockInfo.adjHigh).toFixed(2)}` : "-"}
+              </div>
+            </div>
+            <div className="stat-item">
+              <div className="stat-label">Low</div>
+              <div className="stat-value">
+                {stockInfo ? `$${Number(stockInfo.adjLow).toFixed(2)}` : "-"}
+              </div>
+            </div>
+            <div className="stat-item">
+              <div className="stat-label">Volume</div>
+              <div className="stat-value">
+                {stockInfo ? formatVolume(stockInfo.adjVolume) : "-"}
+              </div>
+            </div>
+            <div className="stat-item">
+              <div className="stat-label">RSI</div>
+              <div className="stat-value">
+                {stockInfo?.RSI ? stockInfo.RSI.toFixed(1) : "-"}
+              </div>
+            </div>
+            <div className="stat-item">
+              <div className="stat-label">MACD</div>
+              <div className="stat-value">
+                {stockInfo?.MACD ? stockInfo.MACD.toFixed(4) : "-"}
+              </div>
+            </div>
           </div>
         </div>
 
-        {error && (
-          <div
-            style={{
-              background: "#fee2e2",
-              color: "#991b1b",
-              padding: "12px 16px",
-              borderRadius: 8,
-              marginBottom: 20,
-              marginTop: 20,
-            }}
-          >
-            ⚠️ {error}
+        <div className={`fields-section ${stockInfo ? "visible" : ""}`} id="fieldsSection">
+          <div className="section-label">Price & Volume</div>
+          <div className="legend">
+            <span>
+              <span className="dot dot-b" /> Price
+            </span>
+            <span>
+              <span className="dot dot-r" /> Volume
+            </span>
+            <span>
+              <span className="dot dot-g" /> Indicators
+            </span>
           </div>
-        )}
+          <div className="input-grid">
+            {PRICE_FIELDS.map((field) => (
+              <div key={field.key} className={`input-group ${field.className}`}>
+                <label>
+                  <span
+                    className={`dot ${field.className === "cat-vol" ? "dot-r" : "dot-b"}`}
+                  ></span>
+                  {field.label}
+                </label>
+                <input
+                  type="number"
+                  step={field.key === "adjVolume" ? "1" : "0.01"}
+                  value={fields[field.key]}
+                  onChange={(event) =>
+                    handleFieldChange(field.key, event.target.value)
+                  }
+                  placeholder="0.00"
+                />
+                <div className="hint">{field.hint}</div>
+              </div>
+            ))}
+          </div>
 
-        <div className="pred-layout">
-          <ControlPanel
-            sym={sym}
-            inputSym={inputSym}
-            setInputSym={setInputSym}
-            days={days}
-            setDays={setDays}
-            model={model}
-            setModel={setModel}
-            loading={loading}
-            onSearch={handleSearch}
-            onChipClick={handleQuickPick}
-            onRun={generatePrediction}
-          />
-          <div className="results-panel">
-            <ResultsPanel
-              stockData={stockData}
-              prediction={prediction}
-              loading={loading}
-              sym={sym}
-              model={model}
-              days={days}
-              tab={tab}
-              setTab={setTab}
-            />
+          <div className="section-label">Technical Indicators</div>
+          <div className="input-grid">
+            {INDICATOR_FIELDS.map((field) => (
+              <div key={field.key} className="input-group">
+                <label>
+                  <span className="dot dot-g" />
+                  {field.label}
+                </label>
+                <input
+                  type="number"
+                  step={field.key === "RSI" ? "0.01" : "0.0001"}
+                  value={fields[field.key]}
+                  onChange={(event) =>
+                    handleFieldChange(field.key, event.target.value)
+                  }
+                  placeholder="0.00"
+                />
+                <div className="hint">{field.hint}</div>
+              </div>
+            ))}
           </div>
+
+          <div className="model-row">
+            <label>Model -></label>
+            <select value={model} onChange={(event) => setModel(event.target.value)}>
+              {modelList.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <label className="horizon-control">
+            Prediction horizon: <strong>{predictionDays} days</strong>
+            <input
+              type="range"
+              min="1"
+              max="30"
+              value={predictionDays}
+              onChange={(event) => setPredictionDays(Number(event.target.value))}
+            />
+          </label>
+
+          <button
+            className="predict-btn"
+            id="predictBtn"
+            type="button"
+            onClick={predict}
+            disabled={loadingPredict || !stockInfo}
+          >
+            {loadingPredict ? (
+              <>
+                <span className="spinner spinner-light" /> Predicting...
+              </>
+            ) : (
+              "Predict Next Day Close ->"
+            )}
+          </button>
+
+          {predictionError && (
+            <div className="msg error visible" id="predictErr">
+              {predictionError}
+            </div>
+          )}
+
+          <div className={`result-card ${predictionResult ? "visible" : ""}`} id="resultCard">
+            <div className="result-label">
+              Predicted next-day adj close - {forecastName} -{" "}
+              <span id="resultTicker">{currentTicker || "-"}</span>
+            </div>
+            <div>
+              <span className="result-price" id="resultPrice">
+                {predictedPrice ? `$${predictedPrice.toFixed(2)}` : "-"}
+              </span>
+              <span
+                className={`change-badge ${
+                  deltaUp ? "cbadge-up" : "cbadge-down"
+                }`}
+                id="changeBadge"
+              >
+                {priceDelta !== null
+                  ? `${deltaUp ? "+ " : "- "}${pctDelta?.toFixed(2) ?? "--"}%`
+                  : "--"}
+              </span>
+            </div>
+
+            <div className="result-meta">
+              <div className="rm-item">
+                <div className="rm-label">Current Close</div>
+                <div className="rm-value" id="metaCurrent">
+                  {baselineClose !== null ? `$${baselineClose.toFixed(2)}` : "--"}
+                </div>
+              </div>
+              <div className="rm-item">
+                <div className="rm-label">Change ($)</div>
+                <div className="rm-value" id="metaDelta">
+                  {priceDelta !== null ? `${priceDelta >= 0 ? "+" : ""}${priceDelta.toFixed(2)}` : "--"}
+                </div>
+              </div>
+              <div className="rm-item">
+                <div className="rm-label">RSI Signal</div>
+                <div className="rm-value" id="metaRSI">
+                  {rsiSignal}
+                </div>
+              </div>
+              <div className="rm-item">
+                <div className="rm-label">MACD Signal</div>
+                <div className="rm-value" id="metaMACD">
+                  {macdSignal}
+                </div>
+              </div>
+              <div className="rm-item">
+                <div className="rm-label">SMA Trend</div>
+                <div className="rm-value" id="metaSMA">
+                  {smaTrend}
+                </div>
+              </div>
+            </div>
+
+            <div className="panel-graph">
+              <div className="graph-heading">
+                <div>
+                  <p className="eyebrow">Confidence</p>
+                  <strong>{forecastConfidence}</strong>
+                </div>
+                <span>{predictionDays}-day horizon</span>
+              </div>
+              <p className="forecast-note">
+                Higher confidence tends to match smoother markets; treat every prediction as illustrative and double-check with independent data.
+              </p>
+              <div className="graph-meta">
+                <span>{forecastName}</span>
+                <span>{currentTicker || "--"}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="disclaimer">
+          <strong>Disclaimer:</strong> Models were trained on historical AAPL data.
+          Predictions for other tickers should be interpreted as illustrative
+          unless the models are retrained.
         </div>
       </div>
-    </div>
+    </section>
   );
 }
+
+export default Prediction;

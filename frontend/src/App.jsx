@@ -1,61 +1,38 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import Navbar from "./components/Navbar";
-import Landing from "./components/Landing";
-import Prediction from "./components/Prediction";
-import Contact from "./components/Contact";
+import Footer from "./components/Footer";
+import Landing from "./pages/Landing";
+import Prediction from "./pages/Prediction";
+import Contact from "./pages/Contact";
+import "./styles/global.css";
+import "./styles/app.css";
+
+const PAGES = {
+  home: "home",
+  predictor: "predictor",
+  contact: "contact",
+};
 
 function App() {
-  const [currentPage, setCurrentPage] = useState("home");
-  const [user, setUser] = useState(null);
-
-  // Check if user is logged in
-  useEffect(() => {
-    const savedUser = localStorage.getItem("pulseai_user");
-    if (savedUser) {
-      try {
-        setUser(JSON.parse(savedUser));
-      } catch (e) {
-        console.error("Failed to parse user:", e);
-      }
-    }
-  }, []);
-
-  const handleNavigate = (pageId) => {
-    setCurrentPage(pageId);
-    window.scrollTo(0, 0);
-  };
-
-  const handleLogout = () => {
-    setUser(null);
-    localStorage.removeItem("pulseai_user");
-    localStorage.removeItem("access_token");
-    setCurrentPage("home");
-  };
+  const [currentPage, setCurrentPage] = useState(PAGES.home);
 
   const renderPage = () => {
     switch (currentPage) {
-      case "home":
-        return <Landing onNavigate={handleNavigate} />;
-      case "predictor":
+      case PAGES.predictor:
         return <Prediction />;
-      case "contact":
+      case PAGES.contact:
         return <Contact />;
+      case PAGES.home:
       default:
-        return <Landing onNavigate={handleNavigate} />;
+        return <Landing onNavigate={setCurrentPage} />;
     }
   };
 
   return (
-    <div className="app">
-      <Navbar
-        currentPage={currentPage}
-        onNavigate={handleNavigate}
-        user={user}
-        onLogout={handleLogout}
-      />
-      <main className="app-content">
-        {renderPage()}
-      </main>
+    <div className="app-shell">
+      <Navbar currentPage={currentPage} onNavigate={setCurrentPage} />
+      <main className="app-content">{renderPage()}</main>
+      <Footer />
     </div>
   );
 }
