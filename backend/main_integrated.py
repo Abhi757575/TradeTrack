@@ -1,5 +1,5 @@
 """
-PulseAI Stock Prediction API
+TradeTrack Stock Prediction API
 FastAPI backend with multiple ML models for price prediction
 """
 
@@ -9,15 +9,14 @@ from pydantic import BaseModel
 from typing import Optional, List
 import numpy as np
 import pandas as pd
-from datetime import datetime, timedelta
+from datetime import timedelta
 import yfinance as yf
 import pickle
-import os
 from pathlib import Path
 import warnings
 warnings.filterwarnings("ignore")
 
-app = FastAPI(title="PulseAI Stock API", version="2.0.0")
+app = FastAPI(title="TradeTrack Stock API", version="2.0.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -329,7 +328,7 @@ def _fallback_predict(prices: np.ndarray, days: int) -> tuple:
 def root():
     return {
         "status": "ok",
-        "service": "PulseAI Stock API",
+        "service": "TradeTrack Stock API",
         "version": "2.0.0",
         "models_loaded": list(MODELS.keys())
     }

@@ -16,7 +16,7 @@ const getApiBase = () => {
   }
 
   // Production (update with your domain)
-  return "https://api.pulseai.com";
+  return "https://api.tradetrack.com";
 };
 
 export const API_BASE = getApiBase();

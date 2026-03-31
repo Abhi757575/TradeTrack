@@ -4,7 +4,7 @@ function Footer() {
   return (
     <footer className="footer-shell">
       <div>
-        <div className="footer-brand">PulseAI</div>
+        <div className="footer-brand">TradeTrack</div>
         <p className="footer-tagline">Turning data energy into human stories.</p>
       </div>
       <div className="footer-columns">
@@ -14,7 +14,7 @@ function Footer() {
         </div>
         <div>
           <h4>Contact</h4>
-          <p>hello@pulseai.app</p>
+          <p>hello@tradetrack.app</p>
           <p>+1 (415) 555-0123</p>
         </div>
         <div>
@@ -23,7 +23,7 @@ function Footer() {
           <p>Case studies</p>
         </div>
       </div>
-      <p className="footer-copy">Â© 2026 PulseAI Â· Built with optimism.</p>
+      <p className="footer-copy">© 2026 TradeTrack · Built with optimism.</p>
     </footer>
   );
 }

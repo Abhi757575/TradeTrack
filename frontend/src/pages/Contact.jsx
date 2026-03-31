@@ -16,7 +16,7 @@ function Contact() {
         <div className="contact-panel">
           <div>
             <h3>Stock strategists</h3>
-            <p>Research@pulseai.app</p>
+            <p>Research@tradetrack.app</p>
             <p>+1 (415) 555-0112</p>
           </div>
           <div>

@@ -22,7 +22,7 @@ function Landing({ onNavigate }) {
           <p className="eyebrow">Stock Prediction Studio</p>
           <h1>See the market pulse, then stake your move with conviction.</h1>
           <p className="hero-copy">
-            PulseAI pairs quantitative rigor with narrative clarity so you can
+            TradeTrack pairs quantitative rigor with narrative clarity so you can
             plan trades, orchestrate launches, and share why the next signal is
             worth action before the bell rings.
           </p>
@@ -97,17 +97,17 @@ function Landing({ onNavigate }) {
         </div>
       </div>
 
-      <div className="cta-strip">
-        <div>
-          <h3>Ready to bring your portfolio insight to live action?</h3>
-          <p>Launch a custom watchlist and prediction stream in minutes.</p>
+        <div className="cta-strip">
+          <div>
+            <h3>Ready to bring your portfolio insight to live action?</h3>
+            <p>Launch a custom watchlist and prediction stream in minutes.</p>
+          </div>
+          <button className="hero-cta" onClick={() => onNavigate("contact")}>
+            Book a research call
+          </button>
         </div>
-        <button className="hero-cta" onClick={() => onNavigate("contact")}>
-          Book a research call
-        </button>
-      </div>
-    </section>
-  );
-}
+      </section>
+    );
+  }
 
 export default Landing;

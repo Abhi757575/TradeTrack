@@ -1,5 +1,5 @@
 """
-Test suite for PulseAI Backend API
+Test suite for TradeTrack Backend API
 Tests for endpoints, models, and utility functions
 """
 

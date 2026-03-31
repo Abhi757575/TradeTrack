@@ -9,9 +9,11 @@ const NAV_ITEMS = [
 function Navbar({ currentPage, onNavigate }) {
   return (
     <header className="nav-shell">
-      <div className="nav-brand" onClick={() => onNavigate("home")}>
-        PulseAI
-        <span>Live Pulse Intelligence</span>
+      <div className="nav-left">
+        <div className="nav-brand" onClick={() => onNavigate("home")}>
+          TradeTrack
+          <span>Live Trade Intelligence</span>
+        </div>
       </div>
       <nav className="nav-links">
         {NAV_ITEMS.map((item) => (
@@ -24,11 +26,6 @@ function Navbar({ currentPage, onNavigate }) {
           </button>
         ))}
       </nav>
-      <div className="nav-actions">
-        <button className="nav-cta" onClick={() => onNavigate("predictor")}>
-          Launch Predictor
-        </button>
-      </div>
     </header>
   );
 }

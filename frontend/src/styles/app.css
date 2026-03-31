@@ -2,7 +2,8 @@
   min-height: 100vh;
   display: flex;
   flex-direction: column;
-  background: linear-gradient(180deg, rgba(12, 20, 40, 0.9), #030712 60%);
+  background: linear-gradient(180deg, rgba(2, 6, 20, 0.9), rgba(4, 13, 28, 0.95));
+  color: var(--muted);
 }
 
 .app-content {
@@ -16,7 +17,6 @@
   letter-spacing: 0.2em;
   text-transform: uppercase;
   font-size: 0.8rem;
-  color: #8bd5ff;
+  color: var(--accent2);
   margin-bottom: 0.5rem;
 }
-

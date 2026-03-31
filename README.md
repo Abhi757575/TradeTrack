@@ -1,4 +1,4 @@
-# PulseAI — Stock Price Prediction
+# TradeTrack — Stock Price Prediction
 
 A full-stack AI stock prediction web app with a 3-page React frontend and a FastAPI ML backend.
 
@@ -7,7 +7,7 @@ A full-stack AI stock prediction web app with a 3-page React frontend and a Fast
 ## 📁 Project Structure
 
 ```
-PulseAI/
+ TradeTrack/
 ├── backend/
 │   ├── main.py              # FastAPI app — stock data + ML prediction endpoints
 │   └── requirements.txt     # Python dependencies
@@ -66,6 +66,19 @@ npm install
 npm run dev
 # App running at http://localhost:3000
 ```
+
+### 3. Streamlit console (optional)
+
+```bash
+pip install streamlit httpx pandas
+TRADETRACK_API_URL=http://localhost:8000 streamlit run streamlit_app.py
+```
+
+The console hits `streamlit_app.py` at the repo root and lets you preview `/stock`, `/features`, and `/predict`. Set `TRADETRACK_API_URL` if your backend runs on a different host or port before running Streamlit.
+
+## 🛡 Authentication APIs
+
+TradeTrack now exposes token-based auth APIs powered by SQLite. Call `/auth/register` (POST name, email, password, confirm_password, date_of_birth) to create an account, `/auth/login` (POST identifier + password) to get access/refresh tokens, `/auth/me` to describe the current user, and `/auth/refresh` to rotate tokens. Credentials are hashed and stored in `backend/users.db`, and the React console at the top of each page now manages the login/register flow, greets the user with “Hi, {name}”, and scrolls to the auth panel when you tap “Login” or “Register” in the navbar.
 
 ---
 
