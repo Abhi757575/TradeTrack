@@ -1,12 +1,22 @@
 :root {
-  color: #e2f5ff;
   font-family: "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
     sans-serif;
-  background-color: #020617;
-  --panel-bg: rgba(255, 255, 255, 0.03);
-  --panel-border: rgba(255, 255, 255, 0.08);
-  --gradient: linear-gradient(135deg, #05a84c, #00d6ff);
-  --accent: #3ee1a2;
+  color: #e9f6ff;
+  background-color: #01061a;
+  --bg: #01061a;
+  --surface: rgba(5, 12, 32, 0.9);
+  --panel-bg: rgba(6, 12, 32, 0.82);
+  --panel-border: rgba(255, 255, 255, 0.18);
+  --gradient: linear-gradient(135deg, #0ce0ff, #1ddba3);
+  --accent: #23d2ff;
+  --accent2: #1cfabf;
+  --accent3: #ffbf47;
+  --muted: rgba(255, 255, 255, 0.75);
+  --muted-strong: rgba(255, 255, 255, 0.9);
+  --card: rgba(5, 10, 26, 0.95);
+  --border: rgba(255, 255, 255, 0.08);
+  --glow: radial-gradient(circle at 20% 20%, rgba(36, 210, 255, 0.25), transparent 40%),
+    radial-gradient(circle at 80% 0%, rgba(1, 197, 255, 0.18), transparent 55%);
 }
 
 *,
@@ -17,9 +27,10 @@
 
 body {
   margin: 0;
-  background: radial-gradient(circle at top right, rgba(2, 168, 76, 0.15), transparent 40%),
-    #01040d;
   min-height: 100vh;
+  background: var(--glow),
+    linear-gradient(180deg, #010610 0%, #040a1d 55%, #02060f 100%);
+  color: inherit;
 }
 
 button,

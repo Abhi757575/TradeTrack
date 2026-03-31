@@ -1,21 +1,9 @@
-:root {
-  --bg: #0a0a0f;
-  --surface: #111118;
-  --card: #16161f;
-  --border: #242533;
-  --accent: #00ff88;
-  --accent2: #0088ff;
-  --accent3: #ff4466;
-  --text: #e8e8f0;
-  --muted: #666680;
-}
-
 .prediction-shell {
-  background: var(--bg);
+  background: transparent;
   min-height: 100vh;
   padding: 40px 20px 80px;
   font-family: "Syne", system-ui, sans-serif;
-  color: var(--text);
+  color: var(--muted-strong);
 }
 
 .container {

@@ -1,5 +1,5 @@
 """
-JWT Authentication Module for PulseAI API
+JWT Authentication Module for TradeTrack API
 Secure API endpoints with token-based authentication
 """
 

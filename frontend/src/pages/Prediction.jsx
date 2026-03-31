@@ -456,7 +456,7 @@ function Prediction() {
           </div>
 
           <div className="model-row">
-            <label>Model -></label>
+            <label>Model →</label>
             <select value={model} onChange={(event) => setModel(event.target.value)}>
               {modelList.map((item) => (
                 <option key={item.id} value={item.id}>
