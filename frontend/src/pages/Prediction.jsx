@@ -31,6 +31,81 @@ const FALLBACK_MODELS = [
   { id: "lstm", name: "LSTM" },
 ];
 
+const FALLBACK_FEATURE_DATA = {
+  AAPL: {
+    symbol: "AAPL",
+    company_name: "Apple Inc.",
+    adjOpen: 214.12,
+    adjHigh: 216.48,
+    adjLow: 212.77,
+    adjClose: 215.63,
+    adjVolume: 58234000,
+    SMA_10: 213.94,
+    SMA_50: 208.56,
+    RSI: 58.42,
+    MACD: 1.1842,
+    MACD_Signal: 0.9421,
+    MACD_hist: 0.2421,
+    prev_close: 213.91,
+    change: 1.72,
+    change_pct: 0.8,
+  },
+  MSFT: {
+    symbol: "MSFT",
+    company_name: "Microsoft Corporation",
+    adjOpen: 426.45,
+    adjHigh: 429.18,
+    adjLow: 423.67,
+    adjClose: 427.84,
+    adjVolume: 24122000,
+    SMA_10: 424.92,
+    SMA_50: 417.38,
+    RSI: 60.13,
+    MACD: 2.4168,
+    MACD_Signal: 2.1021,
+    MACD_hist: 0.3147,
+    prev_close: 425.31,
+    change: 2.53,
+    change_pct: 0.59,
+  },
+  NVDA: {
+    symbol: "NVDA",
+    company_name: "NVIDIA Corporation",
+    adjOpen: 118.24,
+    adjHigh: 121.66,
+    adjLow: 117.81,
+    adjClose: 120.92,
+    adjVolume: 214875000,
+    SMA_10: 117.43,
+    SMA_50: 110.84,
+    RSI: 67.24,
+    MACD: 3.2284,
+    MACD_Signal: 2.9017,
+    MACD_hist: 0.3267,
+    prev_close: 118.57,
+    change: 2.35,
+    change_pct: 1.98,
+  },
+  TSLA: {
+    symbol: "TSLA",
+    company_name: "Tesla, Inc.",
+    adjOpen: 171.86,
+    adjHigh: 175.24,
+    adjLow: 169.91,
+    adjClose: 173.78,
+    adjVolume: 96845000,
+    SMA_10: 170.22,
+    SMA_50: 176.15,
+    RSI: 47.81,
+    MACD: -1.1472,
+    MACD_Signal: -0.9246,
+    MACD_hist: -0.2226,
+    prev_close: 172.44,
+    change: 1.34,
+    change_pct: 0.78,
+  },
+};
+
 const createEmptyFields = () => {
   const obj = {};
   FEATURE_KEYS.forEach((key) => {
@@ -73,6 +148,56 @@ const buildFeaturePayload = (fields) => {
     payload[key] = parsed;
   });
   return payload;
+};
+
+const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
+
+const createLocalPrediction = ({
+  symbol,
+  modelId,
+  modelName,
+  days,
+  fields,
+}) => {
+  const close = parseNumber(fields.adjClose) ?? 0;
+  const sma10 = parseNumber(fields.SMA_10) ?? close;
+  const sma50 = parseNumber(fields.SMA_50) ?? close;
+  const rsi = parseNumber(fields.RSI) ?? 50;
+  const macdHist = parseNumber(fields.MACD_hist) ?? 0;
+  const volume = parseNumber(fields.adjVolume) ?? 0;
+
+  const trendSignal = close === 0 ? 0 : ((sma10 - sma50) / close) * 100;
+  const rsiSignal = (50 - rsi) / 100;
+  const macdSignal = macdHist / Math.max(close * 0.01, 1);
+  const volumeSignal = volume > 0 ? Math.log10(volume) / 100 : 0;
+
+  const combinedSignal =
+    trendSignal * 0.45 + rsiSignal * 2.2 + macdSignal * 0.8 + volumeSignal;
+  const dailyMovePct = clamp(combinedSignal, -3, 3);
+  const volatilityPct = clamp(Math.abs(dailyMovePct) * 0.6 + 1.2, 1, 4.5);
+
+  const predictions = [];
+  let price = close;
+
+  for (let day = 0; day < days; day += 1) {
+    const drift = dailyMovePct * Math.exp(-day * 0.12);
+    price = price * (1 + drift / 100);
+    const bandPct = volatilityPct * (0.8 + day * 0.08);
+
+    predictions.push({
+      date: `Day ${day + 1}`,
+      price: Number(price.toFixed(2)),
+      lower: Number(Math.max(0, price * (1 - bandPct / 100)).toFixed(2)),
+      upper: Number((price * (1 + bandPct / 100)).toFixed(2)),
+    });
+  }
+
+  return {
+    symbol,
+    model: `${modelName} (Local fallback)`,
+    confidence: clamp(0.72 - (days - 1) * 0.015, 0.55, 0.78),
+    predictions,
+  };
 };
 
 function Prediction() {
@@ -164,11 +289,24 @@ function Prediction() {
       populateFields(data);
       setSearchInfo(`Data refreshed for ${data.symbol}`);
     } catch (error) {
-      setStockInfo(null);
-      setSearchError(error.message || "Failed to fetch stock features");
-      setSearchInfo("");
-      setFields(createEmptyFields());
-      setCurrentTicker("");
+      const fallback = FALLBACK_FEATURE_DATA[symbol];
+
+      if (fallback) {
+        setStockInfo(fallback);
+        setCurrentTicker(fallback.symbol);
+        setTickerInput(fallback.symbol);
+        populateFields(fallback);
+        setSearchError("");
+        setSearchInfo(
+          `Live API is unavailable, so showing saved demo data for ${fallback.symbol}.`
+        );
+      } else {
+        setStockInfo(null);
+        setSearchError(error.message || "Failed to fetch stock features");
+        setSearchInfo("");
+        setFields(createEmptyFields());
+        setCurrentTicker("");
+      }
     } finally {
       setLoadingFetch(false);
     }
@@ -210,7 +348,19 @@ function Prediction() {
       const data = await response.json();
       setPredictionResult(data);
     } catch (error) {
-      setPredictionError(error.message || "Unable to generate prediction");
+      const fallbackPrediction = createLocalPrediction({
+        symbol: currentTicker,
+        modelId: model,
+        modelName:
+          modelList.find((item) => item.id === model)?.name || "Selected Model",
+        days: predictionDays,
+        fields,
+      });
+
+      setPredictionResult(fallbackPrediction);
+      setPredictionError(
+        "Live prediction API is unavailable, so a local estimate is being shown."
+      );
     } finally {
       setLoadingPredict(false);
     }

@@ -25,7 +25,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ── Model Loading ────────────────────────────────────────────
+# -- Model loading --------------------------------------------------------
 MODELS = {}
 MODEL_NAMES = {
     "lstm": "LSTM",
@@ -69,11 +69,11 @@ def load_models():
             try:
                 with open(filepath, 'rb') as f:
                     MODELS[key] = pickle.load(f)
-                print(f"✓ Loaded {MODEL_NAMES[key]}")
+                print(f"[INFO] Loaded {MODEL_NAMES[key]}")
             except Exception as e:
-                print(f"✗ Failed to load {filename}: {e}")
+                print(f"[ERROR] Failed to load {filename}: {e}")
         else:
-            print(f"✗ Model file not found: {filename}")
+            print(f"[WARN] Model file not found: {filename}")
 
 # Load models on startup
 load_models()
@@ -342,7 +342,7 @@ def get_models() -> AvailableModelsResponse:
             id="lstm",
             name="LSTM",
             description="Long Short-Term Memory neural network",
-            architecture="2-layer LSTM (128→64 units) with attention mechanism",
+            architecture="2-layer LSTM (128->64 units) with attention mechanism",
             features="Time-series sequential learning with 20-day window",
             performance="RMSE: ~2.2%, Best for trends"
         ),
@@ -585,7 +585,7 @@ def search_stocks(query: str):
     return {"results": results[:10]}
 
 
-# ── Run ───────────────────────────────────────────────────────
+# -- Entry point ---------------------------------------------------------
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main_integrated:app", host="0.0.0.0", port=8000, reload=True)

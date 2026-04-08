@@ -2,8 +2,11 @@ import "../styles/navbar.css";
 
 const NAV_ITEMS = [
   { id: "home", label: "Overview" },
-  { id: "predictor", label: "Predictions" },
+  { id: "prediction", label: "Prediction" },
+  { id: "stocks", label: "Stocks" },
   { id: "contact", label: "Contact" },
+  
+
 ];
 
 function Navbar({ currentPage, onNavigate }) {

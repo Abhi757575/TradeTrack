@@ -1,26 +1,40 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Navbar from "./components/Navbar";
 import Footer from "./components/Footer";
 import Landing from "./pages/Landing";
-import Prediction from "./pages/Prediction";
 import Contact from "./pages/Contact";
 import "./styles/global.css";
 import "./styles/app.css";
+import Prediction from "./pages/Prediction";
+
+const PAGE_STORAGE_KEY = "tradetrack-current-page";
 
 const PAGES = {
   home: "home",
-  predictor: "predictor",
+  prediction: "prediction",
+  stocks: "stocks",
   contact: "contact",
+  
 };
 
 function App() {
-  const [currentPage, setCurrentPage] = useState(PAGES.home);
+  const [currentPage, setCurrentPage] = useState(() => {
+    const savedPage = window.localStorage.getItem(PAGE_STORAGE_KEY);
+    return Object.values(PAGES).includes(savedPage) ? savedPage : PAGES.home;
+  });
+
+  useEffect(() => {
+    window.localStorage.setItem(PAGE_STORAGE_KEY, currentPage);
+  }, [currentPage]);
 
   const renderPage = () => {
     switch (currentPage) {
-      case PAGES.predictor:
+      
+      case PAGES.prediction:
         return <Prediction />;
-      case PAGES.contact:
+        case PAGES.stocks:
+        return <Stocks />;
+        case PAGES.contact:
         return <Contact />;
       case PAGES.home:
       default:

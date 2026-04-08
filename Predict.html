@@ -1,0 +1,510 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>TradeTrack — Stock Predictor</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:ital,wght@0,300;0,400;0,500;1,400&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet"/>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- HEADER -->
+  <header>
+    <div class="logo">Trade<span>Track</span></div>
+    <div class="status-dot"><div class="dot"></div>API LIVE</div>
+  </header>
+
+  <!-- TICKER -->
+  <div class="ticker-row">
+    <div class="ticker-group">
+      <div class="label">Stock Symbol</div>
+      <input class="ticker-input" id="tickerInput" maxlength="5"
+             placeholder="TSLA" autocomplete="off" spellcheck="false"/>
+    </div>
+    <div class="company-badge" id="companyBadge">
+      <div class="company-name" id="companyName" style="color:var(--muted)">Enter a ticker to load stock data</div>
+      <div class="company-price hidden" id="priceBlock">
+        <div class="price-big" id="priceVal">—</div>
+        <div class="price-chg" id="priceChg"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- CONFIG GRID -->
+  <div class="config-grid">
+
+    <!-- Model selector -->
+    <div class="card">
+      <div class="card-title">Prediction Model <span class="pill">6 available</span></div>
+      <div class="label">Select model</div>
+      <select class="model-select" id="modelSelect">
+        <option value="lstm">LSTM — Long Short-Term Memory</option>
+        <option value="xgboost">XGBoost — Gradient Boosted Trees</option>
+        <option value="gradient_boosting">Gradient Boosting — Sequential Ensemble</option>
+        <option value="random_forest">Random Forest — 500 Trees</option>
+        <option value="svm">SVM — RBF Kernel</option>
+        <option value="linear_regression">Linear Regression — Baseline</option>
+      </select>
+      <div class="model-desc" id="modelDesc">Loading model info…</div>
+
+      <div style="margin-top:20px">
+        <div class="label">Forecast horizon</div>
+        <div class="days-row">
+          <input type="range" class="days-slider" id="daysSlider" min="1" max="30" value="5" step="1"/>
+          <div class="days-val"><span id="daysVal">5</span><span style="font-size:11px;color:var(--muted)">d</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Feature inputs -->
+    <div class="card">
+      <div class="card-title">Technical Indicators <span class="pill">auto-filled</span></div>
+      <div class="feature-grid">
+        <div class="field">
+          <label>SMA 10 <span style="color:var(--muted);font-size:9px">10-day avg</span></label>
+          <input type="number" id="f_sma10" placeholder="e.g. 182.50" step="0.01"/>
+          <span class="hint">10-day simple moving avg</span>
+        </div>
+        <div class="field">
+          <label>SMA 50 <span style="color:var(--muted);font-size:9px">50-day avg</span></label>
+          <input type="number" id="f_sma50" placeholder="e.g. 175.30" step="0.01"/>
+          <span class="hint">50-day simple moving avg</span>
+        </div>
+        <div class="field full">
+          <label>RSI <span style="color:var(--muted);font-size:9px">0 – 100</span></label>
+          <input type="number" id="f_rsi" placeholder="e.g. 58.40" step="0.01" min="0" max="100"/>
+          <span class="hint">Relative Strength Index — overbought &gt;70, oversold &lt;30</span>
+        </div>
+        <div class="field">
+          <label>MACD</label>
+          <input type="number" id="f_macd" placeholder="e.g. 1.25" step="0.0001"/>
+          <span class="hint">MACD line value</span>
+        </div>
+        <div class="field">
+          <label>MACD Signal</label>
+          <input type="number" id="f_macd_signal" placeholder="e.g. 0.98" step="0.0001"/>
+          <span class="hint">Signal line value</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- PREDICT BUTTON -->
+  <button class="predict-btn" id="predictBtn" disabled>
+    PREDICT PRICE →
+  </button>
+
+  <!-- RESULTS -->
+  <div id="results" class="hidden" style="margin-top:48px">
+
+    <div class="results-header">
+      <div class="results-title" id="resultsTitle">—</div>
+      <div class="confidence-badge" id="confBadge">—</div>
+    </div>
+
+    <!-- Forecast strip -->
+    <div class="label">Forecast</div>
+    <div class="forecast-strip" id="forecastStrip"></div>
+
+    <!-- Metrics -->
+    <div class="label">Model accuracy (last 30 days)</div>
+    <div class="metrics-row">
+      <div class="metric-card">
+        <div class="metric-label">MAE</div>
+        <div class="metric-val" id="mMAE">—</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">RMSE</div>
+        <div class="metric-val" id="mRMSE">—</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">MAPE</div>
+        <div class="metric-val" id="mMAPE">—</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">Confidence</div>
+        <div class="metric-val good" id="mConf">—</div>
+      </div>
+    </div>
+
+    <!-- Charts -->
+    <div class="charts-grid">
+      <!-- Accuracy: actual vs predicted -->
+      <div class="chart-card full">
+        <div class="chart-title">Actual vs Predicted — 30-day accuracy</div>
+        <div class="chart-sub">How well the chosen model would have tracked real prices over the last 30 trading days</div>
+        <div class="chart-wrap" style="height:260px">
+          <canvas id="accuracyChart"></canvas>
+        </div>
+      </div>
+      <!-- Forecast chart -->
+      <div class="chart-card full">
+        <div class="chart-title">Price Forecast with Confidence Band</div>
+        <div class="chart-sub">Predicted price range for the next <span id="chartDaysLabel">—</span> trading days</div>
+        <div class="chart-wrap" style="height:220px">
+          <canvas id="forecastChart"></canvas>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- TOAST -->
+<div class="toast hidden" id="toast"></div>
+
+<script>
+const API = 'http://localhost:8000';
+
+// ── State ──────────────────────────────────────────────────────────────────
+let models = [];
+let tickerTimer = null;
+let accChart = null, fcChart = null;
+const fields = ['f_sma10','f_sma50','f_rsi','f_macd','f_macd_signal'];
+
+// ── Model descriptions ─────────────────────────────────────────────────────
+const MODEL_DESCS = {
+  lstm:              { desc: 'Sequential neural network that learns from time-series patterns over a 20-day window.', rmse: '~2.2%' },
+  xgboost:           { desc: 'Gradient boosted trees. Excellent for capturing feature interactions and non-linearity.', rmse: '~2.5%' },
+  gradient_boosting: { desc: 'Sequential decision tree ensemble. Robust to outliers, balanced accuracy.', rmse: '~2.3%' },
+  random_forest:     { desc: '500 random decision trees averaged together. High stability, low variance.', rmse: '~2.7%' },
+  svm:               { desc: 'Support Vector Machine with RBF kernel on standardised features.', rmse: '~3.0%' },
+  linear_regression: { desc: 'Baseline linear model. Fast, interpretable, best on trending stocks.', rmse: '~4.2%' },
+};
+
+function updateModelDesc() {
+  const key = document.getElementById('modelSelect').value;
+  const m = MODEL_DESCS[key] || {};
+  document.getElementById('modelDesc').innerHTML =
+    `${m.desc || ''} <span class="model-rmse">RMSE ${m.rmse || '—'}</span>`;
+}
+
+// ── Days slider ────────────────────────────────────────────────────────────
+document.getElementById('daysSlider').addEventListener('input', e => {
+  document.getElementById('daysVal').textContent = e.target.value;
+});
+
+// ── Ticker autofill ────────────────────────────────────────────────────────
+document.getElementById('tickerInput').addEventListener('input', e => {
+  const val = e.target.value.trim().toUpperCase();
+  clearTimeout(tickerTimer);
+  resetCompanyBadge();
+  setPredictEnabled(false);
+  if (val.length >= 1 && val.length <= 5) {
+    tickerTimer = setTimeout(() => autofill(val), 600);
+  }
+});
+
+async function autofill(symbol) {
+  try {
+    const res = await fetch(`${API}/autofill/${symbol}`);
+    if (!res.ok) throw new Error((await res.json()).detail || 'Not found');
+    const d = await res.json();
+
+    // Company badge
+    document.getElementById('companyName').textContent = d.company_name || symbol;
+    document.getElementById('companyName').style.color = 'var(--text)';
+    document.getElementById('priceVal').textContent = `$${d.current_price.toFixed(2)}`;
+    const chgEl = document.getElementById('priceChg');
+    chgEl.textContent = `${d.change_pct >= 0 ? '+' : ''}${d.change_pct.toFixed(2)}%`;
+    chgEl.className = 'price-chg ' + (d.change_pct >= 0 ? 'up' : 'dn');
+    document.getElementById('priceBlock').classList.remove('hidden');
+
+    // Fill feature inputs
+    setField('f_sma10', d.SMA_10);
+    setField('f_sma50', d.SMA_50);
+    setField('f_rsi',   d.RSI);
+    setField('f_macd',  d.MACD);
+    setField('f_macd_signal', d.MACD_Signal);
+
+    setPredictEnabled(true);
+  } catch(err) {
+    showToast(err.message);
+    resetCompanyBadge();
+  }
+}
+
+function setField(id, val) {
+  const el = document.getElementById(id);
+  el.value = typeof val === 'number' ? val.toFixed(4) : val;
+  el.classList.add('autofilled');
+  el.addEventListener('input', () => el.classList.remove('autofilled'), { once: true });
+}
+
+function resetCompanyBadge() {
+  document.getElementById('companyName').textContent = 'Enter a ticker to load stock data';
+  document.getElementById('companyName').style.color = 'var(--muted)';
+  document.getElementById('priceBlock').classList.add('hidden');
+}
+
+// ── Predict ────────────────────────────────────────────────────────────────
+document.getElementById('predictBtn').addEventListener('click', runPredict);
+document.getElementById('modelSelect').addEventListener('change', updateModelDesc);
+
+async function runPredict() {
+  const symbol = document.getElementById('tickerInput').value.trim().toUpperCase();
+  const model  = document.getElementById('modelSelect').value;
+  const days   = parseInt(document.getElementById('daysSlider').value);
+
+  // Read feature inputs
+  const featureVals = {
+    SMA_10:      parseFloat(document.getElementById('f_sma10').value),
+    SMA_50:      parseFloat(document.getElementById('f_sma50').value),
+    RSI:         parseFloat(document.getElementById('f_rsi').value),
+    MACD:        parseFloat(document.getElementById('f_macd').value),
+    MACD_Signal: parseFloat(document.getElementById('f_macd_signal').value),
+  };
+
+  if (Object.values(featureVals).some(isNaN)) {
+    showToast('Please fill all 5 indicator fields before predicting.');
+    return;
+  }
+
+  const btn = document.getElementById('predictBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>RUNNING MODEL…';
+
+  try {
+    const url = `${API}/predict/${symbol}?model=${model}&days=${days}`;
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(featureVals),
+    });
+    if (!res.ok) throw new Error((await res.json()).detail || 'Prediction failed');
+    const data = await res.json();
+    renderResults(data, days);
+  } catch(err) {
+    showToast(err.message);
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = 'PREDICT PRICE →';
+  }
+}
+
+// ── Render results ─────────────────────────────────────────────────────────
+function renderResults(data, days) {
+  document.getElementById('results').classList.remove('hidden');
+
+  document.getElementById('resultsTitle').textContent =
+    `${data.symbol} · ${data.model}`;
+  document.getElementById('confBadge').textContent =
+    `${(data.confidence * 100).toFixed(1)}% confidence`;
+
+  // Forecast cards
+  const strip = document.getElementById('forecastStrip');
+  strip.innerHTML = '';
+  data.predictions.forEach(p => {
+    strip.innerHTML += `
+      <div class="forecast-card">
+        <div class="fc-date">${p.date}</div>
+        <div class="fc-price">$${p.price.toFixed(2)}</div>
+        <div class="fc-range">$${p.lower.toFixed(2)} – $${p.upper.toFixed(2)}</div>
+      </div>`;
+  });
+
+  // Metrics
+  const m = data.metrics;
+  document.getElementById('mMAE').textContent  = m.MAE.toFixed(4);
+  document.getElementById('mRMSE').textContent = m.RMSE.toFixed(4);
+  const mape = m.MAPE_pct;
+  const mapeEl = document.getElementById('mMAPE');
+  mapeEl.textContent = mape.toFixed(2) + '%';
+  mapeEl.className   = 'metric-val ' + (mape < 3 ? 'good' : mape < 6 ? '' : 'warn');
+  document.getElementById('mConf').textContent = (data.confidence * 100).toFixed(1) + '%';
+  document.getElementById('chartDaysLabel').textContent = days;
+
+  // Charts
+  drawAccuracyChart(data.accuracy_history);
+  drawForecastChart(data.predictions);
+
+  // Scroll
+  document.getElementById('results').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+// ── Accuracy chart ─────────────────────────────────────────────────────────
+function drawAccuracyChart(history) {
+  if (accChart) accChart.destroy();
+  const ctx = document.getElementById('accuracyChart').getContext('2d');
+  const labels  = history.map(h => h.date);
+  const actuals = history.map(h => h.actual);
+  const preds   = history.map(h => h.predicted);
+
+  accChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        {
+          label: 'Actual',
+          data: actuals,
+          borderColor: '#00e5a0',
+          backgroundColor: 'rgba(0,229,160,0.06)',
+          borderWidth: 2,
+          pointRadius: 2,
+          tension: 0.3,
+          fill: false,
+        },
+        {
+          label: 'Predicted',
+          data: preds,
+          borderColor: '#0099ff',
+          backgroundColor: 'rgba(0,153,255,0.06)',
+          borderWidth: 2,
+          pointRadius: 2,
+          tension: 0.3,
+          borderDash: [5, 4],
+          fill: false,
+        },
+      ],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: '#0d0d18',
+          borderColor: '#1e1e2e',
+          borderWidth: 1,
+          titleColor: '#5a5a78',
+          bodyColor: '#e8e8f0',
+          callbacks: {
+            label: ctx => ` ${ctx.dataset.label}: $${ctx.parsed.y.toFixed(2)}`
+          }
+        }
+      },
+      scales: {
+        x: {
+          ticks: { color: '#5a5a78', font: { family: 'DM Mono', size: 10 }, maxTicksLimit: 8 },
+          grid:  { color: 'rgba(255,255,255,0.04)' },
+        },
+        y: {
+          ticks: {
+            color: '#5a5a78', font: { family: 'DM Mono', size: 10 },
+            callback: v => '$' + v.toFixed(0)
+          },
+          grid: { color: 'rgba(255,255,255,0.04)' },
+        }
+      }
+    }
+  });
+
+  // Custom legend
+  renderLegend('accuracyChart',
+    [{ color:'#00e5a0', label:'Actual price' }, { color:'#0099ff', label:'Predicted', dashed: true }]);
+}
+
+// ── Forecast chart ─────────────────────────────────────────────────────────
+function drawForecastChart(predictions) {
+  if (fcChart) fcChart.destroy();
+  const ctx = document.getElementById('forecastChart').getContext('2d');
+  const labels = predictions.map(p => p.date);
+  const prices = predictions.map(p => p.price);
+  const uppers = predictions.map(p => p.upper);
+  const lowers = predictions.map(p => p.lower);
+
+  fcChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        {
+          label: 'Upper band',
+          data: uppers,
+          borderColor: 'transparent',
+          backgroundColor: 'rgba(0,229,160,0.08)',
+          pointRadius: 0,
+          fill: '+1',
+          tension: 0.3,
+        },
+        {
+          label: 'Lower band',
+          data: lowers,
+          borderColor: 'transparent',
+          backgroundColor: 'rgba(0,229,160,0.08)',
+          pointRadius: 0,
+          fill: false,
+          tension: 0.3,
+        },
+        {
+          label: 'Predicted',
+          data: prices,
+          borderColor: '#00e5a0',
+          backgroundColor: 'rgba(0,229,160,0.12)',
+          borderWidth: 2.5,
+          pointRadius: 4,
+          pointBackgroundColor: '#00e5a0',
+          tension: 0.3,
+          fill: false,
+        },
+      ],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: '#0d0d18',
+          borderColor: '#1e1e2e',
+          borderWidth: 1,
+          titleColor: '#5a5a78',
+          bodyColor: '#e8e8f0',
+          filter: item => item.datasetIndex === 2,
+          callbacks: {
+            label: ctx => ` Predicted: $${ctx.parsed.y.toFixed(2)}`
+          }
+        }
+      },
+      scales: {
+        x: {
+          ticks: { color: '#5a5a78', font: { family: 'DM Mono', size: 10 } },
+          grid:  { color: 'rgba(255,255,255,0.04)' },
+        },
+        y: {
+          ticks: {
+            color: '#5a5a78', font: { family: 'DM Mono', size: 10 },
+            callback: v => '$' + v.toFixed(0)
+          },
+          grid: { color: 'rgba(255,255,255,0.04)' },
+        }
+      }
+    }
+  });
+}
+
+function renderLegend(canvasId, items) {
+  const canvas = document.getElementById(canvasId);
+  let legend = canvas.parentElement.parentElement.querySelector('.chart-legend');
+  if (legend) legend.remove();
+  legend = document.createElement('div');
+  legend.className = 'chart-legend';
+  legend.style.cssText = 'display:flex;gap:20px;font-size:11px;color:#5a5a78;margin-bottom:12px;';
+  items.forEach(({ color, label, dashed }) => {
+    legend.innerHTML += `<span style="display:flex;align-items:center;gap:6px">
+      <span style="display:inline-block;width:20px;height:2px;background:${dashed ? 'none' : color};
+        border-top:2px ${dashed ? 'dashed' : 'solid'} ${color}"></span>${label}</span>`;
+  });
+  canvas.parentElement.parentElement.querySelector('.chart-sub')
+    .insertAdjacentElement('afterend', legend);
+}
+
+// ── Utilities ──────────────────────────────────────────────────────────────
+function setPredictEnabled(on) {
+  document.getElementById('predictBtn').disabled = !on;
+}
+
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.remove('hidden');
+  setTimeout(() => t.classList.add('hidden'), 4000);
+}
+
+// ── Init ───────────────────────────────────────────────────────────────────
+updateModelDesc();
+</script>
+</body>
+</html>
