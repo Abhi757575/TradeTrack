@@ -1,0 +1,11 @@
+[33m8096adf[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m, [m[1;31morigin/main[m[33m, [m[1;31morigin/HEAD[m[33m)[m HEAD@{0}: pull: Fast-forward
+[33mf361576[m HEAD@{1}: commit: added more webpages
+[33mb0852c8[m HEAD@{2}: rebase (finish): returning to refs/heads/main
+[33mb0852c8[m HEAD@{3}: rebase (continue): Solved some bug fixes
+[33m9c6362f[m HEAD@{4}: pull --rebase origin main (start): checkout 9c6362f26e63d4f16cbcdb27168bdaa8d3e4ab61
+[33med4db59[m HEAD@{5}: commit: Solved some bug fixes
+[33md220204[m HEAD@{6}: commit: remove pycache files
+[33mff9e6b2[m HEAD@{7}: commit (amend): reworked backend
+[33m8d57d4a[m HEAD@{8}: checkout: moving from main to main
+[33m8d57d4a[m HEAD@{9}: commit: reworked backend
+[33m4995489[m HEAD@{10}: commit (initial): initial commit

@@ -83,7 +83,7 @@ export const getStockData = async (symbol) => {
  */
 export const getPrediction = async (symbol, days = 7, model = "lstm") => {
   return apiFetch(
-    `${API_ENDPOINTS.PREDICT(symbol)}?days=${days}&model=${model}`
+    `${API_ENDPOINTS.PREDICT(symbol)}?days=${days}&model_id=${model}`
   );
 };
 

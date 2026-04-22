@@ -3,10 +3,10 @@ TradeTrack Stock Prediction API — Simplified
 FastAPI backend: stock ticker input, model selection, 5 user-facing features, accuracy graph data
 """
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
-from typing import Optional, List
+from typing import Optional, List, Dict
 import numpy as np
 import pandas as pd
 from datetime import timedelta
@@ -16,6 +16,11 @@ from pathlib import Path
 import warnings
 warnings.filterwarnings("ignore")
 
+try:
+    from chat import router as chat_router
+except Exception:  # pragma: no cover
+    from backend.chat import router as chat_router
+
 app = FastAPI(title="TradeTrack Stock API", version="3.0.0")
 
 app.add_middleware(
@@ -24,6 +29,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(chat_router)
 
 # ── Model registry ──────────────────────────────────────────────────────────
 MODELS = {}
@@ -139,6 +146,40 @@ class FeatureAutoFillResponse(BaseModel):
     change_pct:  float
 
 
+class FeatureResponse(BaseModel):
+    symbol: str
+    company_name: Optional[str]
+    adjOpen: float
+    adjHigh: float
+    adjLow: float
+    adjClose: float
+    adjVolume: float
+    SMA_10: float
+    SMA_50: float
+    RSI: float
+    MACD: float
+    MACD_Signal: float
+    MACD_hist: float
+    prev_close: float
+    change: float
+    change_pct: float
+
+
+class RankingRow(BaseModel):
+    symbol: str
+    company_name: Optional[str] = None
+    return_pct: float
+
+
+class RankingsYTDResponse(BaseModel):
+    year: int
+    as_of: str
+    universe_size: int
+    mean_return_pct: float
+    top_gainers: List[RankingRow]
+    most_average: List[RankingRow]
+
+
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
 def fetch_history(symbol: str, period: str = "1y") -> tuple:
@@ -182,6 +223,57 @@ def add_indicators(df: pd.DataFrame) -> pd.DataFrame:
     df["MACD_hist"]   = df["MACD"] - df["MACD_Signal"]
 
     return df
+
+
+RANKINGS_UNIVERSE = [
+    "AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "TSLA", "BRK-B", "JPM", "V",
+    "UNH", "XOM", "LLY", "AVGO", "MA", "HD", "COST", "KO", "PEP", "ADBE",
+    "CRM", "NFLX", "AMD", "INTC", "CSCO", "PFE", "MRK", "T", "DIS", "NKE",
+]
+
+RANKINGS_NAMES: Dict[str, str] = {
+    "AAPL": "Apple Inc.",
+    "MSFT": "Microsoft Corporation",
+    "NVDA": "NVIDIA Corporation",
+    "GOOGL": "Alphabet Inc.",
+    "AMZN": "Amazon.com, Inc.",
+    "META": "Meta Platforms, Inc.",
+    "TSLA": "Tesla, Inc.",
+    "BRK-B": "Berkshire Hathaway Inc.",
+    "JPM": "JPMorgan Chase & Co.",
+    "V": "Visa Inc.",
+    "UNH": "UnitedHealth Group Inc.",
+    "XOM": "Exxon Mobil Corporation",
+    "LLY": "Eli Lilly and Company",
+    "AVGO": "Broadcom Inc.",
+    "MA": "Mastercard Incorporated",
+    "HD": "The Home Depot, Inc.",
+    "COST": "Costco Wholesale Corporation",
+    "KO": "The Coca-Cola Company",
+    "PEP": "PepsiCo, Inc.",
+    "ADBE": "Adobe Inc.",
+    "CRM": "Salesforce, Inc.",
+    "NFLX": "Netflix, Inc.",
+    "AMD": "Advanced Micro Devices, Inc.",
+    "INTC": "Intel Corporation",
+    "CSCO": "Cisco Systems, Inc.",
+    "PFE": "Pfizer Inc.",
+    "MRK": "Merck & Co., Inc.",
+    "T": "AT&T Inc.",
+    "DIS": "The Walt Disney Company",
+    "NKE": "Nike, Inc.",
+}
+
+
+def _ytd_return_pct(price_series: pd.Series) -> Optional[float]:
+    series = price_series.dropna()
+    if series.empty:
+        return None
+    first = float(series.iloc[0])
+    last = float(series.iloc[-1])
+    if not first:
+        return None
+    return (last / first - 1.0) * 100.0
 
 
 def get_feature_df(hist: pd.DataFrame) -> pd.DataFrame:
@@ -344,18 +436,55 @@ def autofill_features(symbol: str):
     )
 
 
+@app.get("/features/{symbol}", response_model=FeatureResponse)
+def get_features(symbol: str):
+    """
+    Full feature payload used by the Vue Prediction page.
+    """
+    if len(symbol) > 5:
+        raise HTTPException(status_code=400, detail="Ticker symbol must be 1-5 characters (e.g. TSLA, AAPL).")
+
+    hist, info = fetch_history(symbol, period="1y")
+    feature_df = get_feature_df(hist)
+    latest = feature_df.iloc[-1]
+
+    prev_close = float(feature_df["adjClose"].iloc[-2]) if len(feature_df) > 1 else float(latest["adjClose"])
+    change = float(latest["adjClose"]) - prev_close
+    change_pct = (change / prev_close) * 100 if prev_close else 0.0
+
+    return FeatureResponse(
+        symbol=symbol.upper(),
+        company_name=info.get("longName") or info.get("shortName"),
+        adjOpen=round(float(latest["adjOpen"]), 4),
+        adjHigh=round(float(latest["adjHigh"]), 4),
+        adjLow=round(float(latest["adjLow"]), 4),
+        adjClose=round(float(latest["adjClose"]), 4),
+        adjVolume=round(float(latest["adjVolume"]), 4),
+        SMA_10=round(float(latest["SMA_10"]), 4),
+        SMA_50=round(float(latest["SMA_50"]), 4),
+        RSI=round(float(latest["RSI"]), 4),
+        MACD=round(float(latest["MACD"]), 6),
+        MACD_Signal=round(float(latest["MACD_Signal"]), 6),
+        MACD_hist=round(float(latest["MACD_hist"]), 6),
+        prev_close=round(float(prev_close), 4),
+        change=round(float(change), 4),
+        change_pct=round(float(change_pct), 4),
+    )
+
+
 @app.post("/predict/{symbol}", response_model=PredictionResponse)
 def predict(
     symbol:   str,
-    model:    str,
     features: UserFeatureInputs,
+    request:  Request,
+    model_id: Optional[str] = None,
     days:     int = 1,
 ):
     """
     Main prediction endpoint.
 
     - **symbol**  : 1-5 char ticker typed by the user (e.g. TSLA)
-    - **model**   : one of the six model IDs from /models
+    - **model_id**: one of the six model IDs from /models
     - **features**: the 5 technical indicator values entered in the UI
     - **days**    : forecast horizon (1-30)
 
@@ -365,8 +494,18 @@ def predict(
 
     if len(symbol) > 5:
         raise HTTPException(status_code=400, detail="Ticker must be 1-5 characters.")
-    if model not in MODEL_NAMES:
-        raise HTTPException(status_code=400, detail=f"Invalid model '{model}'. Choose from: {', '.join(MODEL_NAMES.keys())}")
+
+    # Backwards compatible with older clients that still pass ?model=...
+    if model_id is None:
+        model_id = request.query_params.get("model")
+
+    if not model_id:
+        raise HTTPException(status_code=400, detail="Missing required query parameter: model_id")
+    if model_id not in MODEL_NAMES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid model_id '{model_id}'. Choose from: {', '.join(MODEL_NAMES.keys())}",
+        )
     if not (1 <= days <= 30):
         raise HTTPException(status_code=400, detail="days must be between 1 and 30.")
 
@@ -378,7 +517,7 @@ def predict(
 
     # Build full feature vector: auto-fetch price cols, use user-supplied indicator cols
     latest       = feature_df.iloc[-1]
-    user_vals    = features.dict()   # {SMA_10, SMA_50, RSI, MACD, MACD_Signal}
+    user_vals    = features.model_dump()   # {SMA_10, SMA_50, RSI, MACD, MACD_Signal}
 
     full_vector = np.array([
         float(latest["adjOpen"]),
@@ -397,9 +536,9 @@ def predict(
     scaled = standardise(full_vector, feature_matrix)
 
     # Run prediction
-    if model in MODELS:
+    if model_id in MODELS:
         try:
-            raw_preds, confidence = run_model(model, prices, scaled, days)
+            raw_preds, confidence = run_model(model_id, prices, scaled, days)
         except Exception as e:
             print(f"[WARN] Model error ({e}), using fallback.")
             raw_preds, confidence = fallback_predict(prices, days)
@@ -422,15 +561,89 @@ def predict(
         ))
 
     # Accuracy history for the graph
-    accuracy_history, metrics = build_accuracy_history(model, feature_df, hist)
+    accuracy_history, metrics = build_accuracy_history(model_id, feature_df, hist)
 
     return PredictionResponse(
         symbol           = symbol,
-        model            = MODEL_NAMES[model],
+        model            = MODEL_NAMES[model_id],
         confidence       = round(confidence, 3),
         predictions      = results,
         accuracy_history = accuracy_history,
         metrics          = metrics,
+    )
+
+
+@app.get("/rankings/ytd", response_model=RankingsYTDResponse)
+def rankings_ytd(limit: int = 10):
+    """
+    Returns YTD return rankings for a fixed universe of large-cap tickers.
+
+    - **top_gainers**: highest YTD % returns
+    - **most_average**: closest to the universe mean YTD % return
+    """
+    if limit < 1:
+        raise HTTPException(status_code=400, detail="limit must be >= 1")
+    limit = min(limit, 25)
+
+    try:
+        df = yf.download(
+            tickers=RANKINGS_UNIVERSE,
+            period="ytd",
+            interval="1d",
+            group_by="ticker",
+            auto_adjust=False,
+            progress=False,
+            threads=True,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Failed to fetch market data: {e}")
+
+    if df is None or getattr(df, "empty", True):
+        raise HTTPException(status_code=502, detail="No market data returned for rankings universe.")
+
+    as_of = str(pd.to_datetime(df.index.max()).date())
+
+    rows: List[RankingRow] = []
+    multi = isinstance(df.columns, pd.MultiIndex)
+    for symbol in RANKINGS_UNIVERSE:
+        if multi:
+            if (symbol, "Adj Close") in df.columns:
+                series = df[(symbol, "Adj Close")]
+            elif (symbol, "Close") in df.columns:
+                series = df[(symbol, "Close")]
+            else:
+                continue
+        else:
+            series = df["Adj Close"] if "Adj Close" in df.columns else df.get("Close")
+            if series is None:
+                continue
+
+        ret = _ytd_return_pct(series)
+        if ret is None:
+            continue
+
+        rows.append(
+            RankingRow(
+                symbol=symbol,
+                company_name=RANKINGS_NAMES.get(symbol),
+                return_pct=round(float(ret), 4),
+            )
+        )
+
+    if not rows:
+        raise HTTPException(status_code=502, detail="Unable to compute YTD returns for rankings universe.")
+
+    mean_return = float(np.mean([row.return_pct for row in rows]))
+    top_gainers = sorted(rows, key=lambda r: r.return_pct, reverse=True)[:limit]
+    most_average = sorted(rows, key=lambda r: abs(r.return_pct - mean_return))[:limit]
+
+    return RankingsYTDResponse(
+        year=pd.Timestamp.today().year,
+        as_of=as_of,
+        universe_size=len(rows),
+        mean_return_pct=round(mean_return, 4),
+        top_gainers=top_gainers,
+        most_average=most_average,
     )
 
 
